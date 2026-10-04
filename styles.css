@@ -162,10 +162,15 @@ input {
   border-color: #666;
 }
 
-.corner-options {
+.corner-options,
+.mode-options {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+
+.mode-options {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .option-toggle,
@@ -219,6 +224,12 @@ input {
   background: #000;
 }
 
+.geometry-stage:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+}
+
 #patternCanvas {
   display: block;
   width: 100%;
@@ -235,7 +246,8 @@ input {
     padding: 18px 12px;
   }
 
-  .corner-options {
+  .corner-options,
+  .mode-options {
     grid-template-columns: 1fr;
   }
 
