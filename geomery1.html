@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>geomery 1 — Uzor</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="geomery1.js" defer></script>
+</head>
+<body class="geometry-page">
+  <div class="geometry-layout">
+    <aside class="geometry-controls">
+      <a class="geometry-controls__back" href="index.html">← patterns</a>
+      <h1>geomery 1</h1>
+
+      <div class="control-group">
+        <label for="lineCount">number lines</label>
+        <input
+          id="lineCount"
+          type="number"
+          min="1"
+          max="100"
+          step="1"
+          value="20"
+          inputmode="numeric"
+        >
+      </div>
+
+      <button id="generateButton" class="generate-button" type="button">
+        generate
+      </button>
+    </aside>
+
+    <main class="geometry-stage">
+      <canvas id="patternCanvas" aria-label="Сгенерированный геометрический узор"></canvas>
+    </main>
+  </div>
+</body>
+</html>
