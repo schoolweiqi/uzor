@@ -1,20 +1,30 @@
 const canvas = document.getElementById("patternCanvas");
 const ctx = canvas.getContext("2d");
+const geometryStage = document.querySelector(".geometry-stage");
 const lineCountInput = document.getElementById("lineCount");
 const stepInput = document.getElementById("stepInput");
+const speedInput = document.getElementById("speedInput");
 const allow4Button = document.getElementById("allow4Button");
 const allow5Button = document.getElementById("allow5Button");
+const drawButton = document.getElementById("drawButton");
+const againButton = document.getElementById("againButton");
+const fullScreenButton = document.getElementById("fullScreenButton");
 const generateButton = document.getElementById("generateButton");
 
 const MIN_ANGLE_DEGREES = 20;
 const MAX_GENERATION_ATTEMPTS = 3000;
 const MAX_PATTERN_RESTARTS = 10;
 const MIN_CELL_AREA_RATIO = 0.04;
-const MIN_PARADOX_SEGMENT_PIXELS = 5;
+const MIN_PARADOX_SEGMENT_PIXELS = 20;
 const MAX_PARADOX_LINES = 1500;
+const AGAIN_DELAY_MS = 10000;
 
 let generatedCells = [];
+let generatedBaseSegments = [];
 let paradoxPaths = [];
+let animationState = null;
+let animationFrameId = null;
+let againTimeoutId = null;
 
 function signedPolygonArea(polygon) {
   let sum = 0;
@@ -76,7 +86,8 @@ function splitVertexToEdge(polygon) {
     polygons: [
       [sourcePoint, ...rotated.slice(1, targetEdgeIndex + 1), splitPoint],
       [sourcePoint, splitPoint, ...rotated.slice(targetEdgeIndex + 1)]
-    ]
+    ],
+    segment: [sourcePoint, splitPoint]
   };
 }
 
@@ -109,7 +120,8 @@ function splitVertexToVertex(polygon) {
     polygons: [
       polygon.slice(start, end + 1),
       polygon.slice(end).concat(polygon.slice(0, start + 1))
-    ]
+    ],
+    segment: [polygon[start], polygon[end]]
   };
 }
 
@@ -164,7 +176,8 @@ function splitEdgeToEdge(polygon) {
     polygons: [
       expanded.slice(startIndex, endIndex + 1),
       expanded.slice(endIndex).concat(expanded.slice(0, startIndex + 1))
-    ]
+    ],
+    segment: [firstPoint, secondPoint]
   };
 }
 
@@ -282,7 +295,7 @@ function tryBuildPattern(lineCount, allowedCorners, width, height) {
       { x: 0, y: 1 }
     ]
   ];
-
+  const baseSegments = [];
   const splitters = [splitVertexToEdge, splitVertexToVertex, splitEdgeToEdge];
 
   for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
@@ -299,6 +312,7 @@ function tryBuildPattern(lineCount, allowedCorners, width, height) {
       }
 
       cells.splice(cellIndex, 1, ...result.polygons);
+      baseSegments.push(result.segment);
       accepted = true;
       break;
     }
@@ -308,7 +322,7 @@ function tryBuildPattern(lineCount, allowedCorners, width, height) {
     }
   }
 
-  return cells;
+  return { cells, baseSegments };
 }
 
 function rebuildParadoxPaths() {
@@ -321,25 +335,248 @@ function rebuildParadoxPaths() {
   );
 }
 
+function boundarySegments() {
+  return [
+    [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+    [{ x: 1, y: 0 }, { x: 1, y: 1 }],
+    [{ x: 1, y: 1 }, { x: 0, y: 1 }],
+    [{ x: 0, y: 1 }, { x: 0, y: 0 }]
+  ];
+}
+
+function paradoxSegments() {
+  const segments = [];
+
+  for (const path of paradoxPaths) {
+    for (let i = 1; i < path.length; i += 1) {
+      segments.push([path[i - 1], path[i]]);
+    }
+  }
+
+  return segments;
+}
+
+function buildDrawingSequence() {
+  return [
+    ...boundarySegments(),
+    ...generatedBaseSegments,
+    ...paradoxSegments()
+  ];
+}
+
+function clearCanvas() {
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, width, height);
+}
+
+function prepareStroke() {
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 1;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+}
+
+function drawSegment(segment, fromT = 0, toT = 1) {
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  const start = pointOnSegment(segment[0], segment[1], fromT);
+  const end = pointOnSegment(segment[0], segment[1], toT);
+
+  ctx.beginPath();
+  ctx.moveTo(start.x * width, start.y * height);
+  ctx.lineTo(end.x * width, end.y * height);
+  ctx.stroke();
+}
+
+function drawCompletePattern() {
+  cancelAnimation();
+  clearCanvas();
+  prepareStroke();
+
+  for (const segment of buildDrawingSequence()) {
+    drawSegment(segment);
+  }
+}
+
+function renderAnimationProgress() {
+  if (!animationState) return;
+
+  clearCanvas();
+  prepareStroke();
+
+  for (let i = 0; i < animationState.segmentIndex; i += 1) {
+    drawSegment(animationState.segments[i]);
+  }
+
+  if (animationState.segmentIndex < animationState.segments.length) {
+    drawSegment(
+      animationState.segments[animationState.segmentIndex],
+      0,
+      animationState.segmentProgress
+    );
+  }
+}
+
+function cancelAnimation() {
+  if (animationFrameId !== null) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
+
+  animationState = null;
+}
+
+function clearAgainTimer() {
+  if (againTimeoutId !== null) {
+    clearTimeout(againTimeoutId);
+    againTimeoutId = null;
+  }
+}
+
+function scheduleAgain() {
+  clearAgainTimer();
+
+  if (againButton.getAttribute("aria-pressed") !== "true") {
+    return;
+  }
+
+  againTimeoutId = setTimeout(() => {
+    againTimeoutId = null;
+    generatePattern(normalizedLineCount());
+  }, AGAIN_DELAY_MS);
+}
+
+function finishDrawing() {
+  animationFrameId = null;
+  animationState = null;
+  scheduleAgain();
+}
+
+function animateDrawing(timestamp) {
+  if (!animationState) return;
+
+  if (animationState.lastTimestamp === null) {
+    animationState.lastTimestamp = timestamp;
+    animationFrameId = requestAnimationFrame(animateDrawing);
+    return;
+  }
+
+  let availablePixels =
+    ((timestamp - animationState.lastTimestamp) / 1000) * normalizedSpeed();
+  animationState.lastTimestamp = timestamp;
+
+  while (
+    availablePixels > 0 &&
+    animationState.segmentIndex < animationState.segments.length
+  ) {
+    const segment = animationState.segments[animationState.segmentIndex];
+    const width = Math.max(1, canvas.clientWidth);
+    const height = Math.max(1, canvas.clientHeight);
+    const segmentLength = distanceInPixels(
+      segment[0],
+      segment[1],
+      width,
+      height
+    );
+
+    if (segmentLength < 0.001) {
+      animationState.segmentIndex += 1;
+      animationState.segmentProgress = 0;
+      continue;
+    }
+
+    const remainingPixels =
+      segmentLength * (1 - animationState.segmentProgress);
+    const consumedPixels = Math.min(availablePixels, remainingPixels);
+    const previousProgress = animationState.segmentProgress;
+
+    animationState.segmentProgress += consumedPixels / segmentLength;
+    drawSegment(
+      segment,
+      previousProgress,
+      animationState.segmentProgress
+    );
+    availablePixels -= consumedPixels;
+
+    if (animationState.segmentProgress >= 0.999999) {
+      animationState.segmentIndex += 1;
+      animationState.segmentProgress = 0;
+    }
+  }
+
+  if (animationState.segmentIndex >= animationState.segments.length) {
+    finishDrawing();
+    return;
+  }
+
+  animationFrameId = requestAnimationFrame(animateDrawing);
+}
+
+function startDrawingAnimation() {
+  cancelAnimation();
+  clearAgainTimer();
+  clearCanvas();
+  prepareStroke();
+
+  const segments = buildDrawingSequence();
+
+  if (!segments.length) {
+    finishDrawing();
+    return;
+  }
+
+  animationState = {
+    segments,
+    segmentIndex: 0,
+    segmentProgress: 0,
+    lastTimestamp: null
+  };
+
+  animationFrameId = requestAnimationFrame(animateDrawing);
+}
+
+function presentPattern() {
+  if (drawButton.getAttribute("aria-pressed") === "true") {
+    startDrawingAnimation();
+  } else {
+    drawCompletePattern();
+    scheduleAgain();
+  }
+}
+
 function generatePattern(lineCount) {
+  cancelAnimation();
+  clearAgainTimer();
+
   const width = Math.max(1, canvas.clientWidth);
   const height = Math.max(1, canvas.clientHeight);
   const allowedCorners = getAllowedCornerCounts();
 
   for (let restart = 0; restart < MAX_PATTERN_RESTARTS; restart += 1) {
-    const cells = tryBuildPattern(lineCount, allowedCorners, width, height);
+    const result = tryBuildPattern(
+      lineCount,
+      allowedCorners,
+      width,
+      height
+    );
 
-    if (!cells) continue;
+    if (!result) continue;
 
-    generatedCells = cells;
+    generatedCells = result.cells;
+    generatedBaseSegments = result.baseSegments;
     rebuildParadoxPaths();
-    drawPattern();
+    presentPattern();
     return;
   }
 
   generatedCells = [];
+  generatedBaseSegments = [];
   paradoxPaths = [];
-  drawPattern();
+  clearCanvas();
 }
 
 function resizeCanvas() {
@@ -348,63 +585,28 @@ function resizeCanvas() {
   const pixelWidth = Math.max(1, Math.round(rect.width * dpr));
   const pixelHeight = Math.max(1, Math.round(rect.height * dpr));
 
-  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+  if (
+    canvas.width !== pixelWidth ||
+    canvas.height !== pixelHeight
+  ) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
   }
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  drawPattern();
-}
 
-function drawPolygonOutline(polygon, width, height) {
-  if (!polygon.length) return;
+  if (animationState) {
+    renderAnimationProgress();
+  } else if (generatedCells.length) {
+    clearCanvas();
+    prepareStroke();
 
-  ctx.moveTo(polygon[0].x * width, polygon[0].y * height);
-
-  for (let i = 1; i < polygon.length; i += 1) {
-    ctx.lineTo(polygon[i].x * width, polygon[i].y * height);
+    for (const segment of buildDrawingSequence()) {
+      drawSegment(segment);
+    }
+  } else {
+    clearCanvas();
   }
-
-  ctx.closePath();
-}
-
-function drawPolyline(path, width, height) {
-  if (path.length < 2) return;
-
-  ctx.moveTo(path[0].x * width, path[0].y * height);
-
-  for (let i = 1; i < path.length; i += 1) {
-    ctx.lineTo(path[i].x * width, path[i].y * height);
-  }
-}
-
-function drawPattern() {
-  const width = canvas.clientWidth;
-  const height = canvas.clientHeight;
-
-  if (!width || !height) return;
-
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#000000";
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.strokeStyle = "#ffffff";
-  ctx.lineWidth = 1;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  ctx.beginPath();
-
-  for (const polygon of generatedCells) {
-    drawPolygonOutline(polygon, width, height);
-  }
-
-  for (const path of paradoxPaths) {
-    drawPolyline(path, width, height);
-  }
-
-  ctx.stroke();
 }
 
 function normalizedLineCount() {
@@ -419,15 +621,25 @@ function normalizedLineCount() {
 function normalizedStep() {
   const raw = Number.parseInt(stepInput.value, 10);
   const value = Number.isFinite(raw) ? raw : 10;
-  const clamped = Math.min(100, Math.max(2, value));
+  const clamped = Math.min(20, Math.max(5, value));
 
   stepInput.value = String(clamped);
   return clamped;
 }
 
-function toggleCornerOption(button) {
+function normalizedSpeed() {
+  const raw = Number.parseInt(speedInput.value, 10);
+  const value = Number.isFinite(raw) ? raw : 300;
+  const clamped = Math.min(1000, Math.max(50, value));
+
+  speedInput.value = String(clamped);
+  return clamped;
+}
+
+function toggleOption(button) {
   const isPressed = button.getAttribute("aria-pressed") === "true";
   button.setAttribute("aria-pressed", String(!isPressed));
+  return !isPressed;
 }
 
 function handleGenerate() {
@@ -435,24 +647,52 @@ function handleGenerate() {
 }
 
 allow4Button.addEventListener("click", () => {
-  toggleCornerOption(allow4Button);
+  toggleOption(allow4Button);
 });
 
 allow5Button.addEventListener("click", () => {
-  toggleCornerOption(allow5Button);
+  toggleOption(allow5Button);
+});
+
+drawButton.addEventListener("click", () => {
+  toggleOption(drawButton);
+});
+
+againButton.addEventListener("click", () => {
+  const enabled = toggleOption(againButton);
+
+  if (!enabled) {
+    clearAgainTimer();
+  } else if (!animationState && generatedCells.length) {
+    scheduleAgain();
+  }
+});
+
+fullScreenButton.addEventListener("click", async () => {
+  try {
+    if (document.fullscreenElement === geometryStage) {
+      await document.exitFullscreen();
+    } else {
+      await geometryStage.requestFullscreen();
+    }
+  } catch (error) {
+    console.error("Fullscreen is not available:", error);
+  }
 });
 
 generateButton.addEventListener("click", handleGenerate);
 
-lineCountInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") handleGenerate();
-});
-
-stepInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") handleGenerate();
-});
+for (const input of [lineCountInput, stepInput, speedInput]) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") handleGenerate();
+  });
+}
 
 window.addEventListener("resize", resizeCanvas);
+
+document.addEventListener("fullscreenchange", () => {
+  requestAnimationFrame(resizeCanvas);
+});
 
 const resizeObserver = new ResizeObserver(resizeCanvas);
 resizeObserver.observe(canvas.parentElement);
