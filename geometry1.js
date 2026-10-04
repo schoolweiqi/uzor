@@ -630,7 +630,7 @@ function normalizedStep() {
 function normalizedSpeed() {
   const raw = Number.parseInt(speedInput.value, 10);
   const value = Number.isFinite(raw) ? raw : 300;
-  const clamped = Math.min(1000, Math.max(50, value));
+  const clamped = Math.min(10000, Math.max(100, value));
 
   speedInput.value = String(clamped);
   return clamped;
