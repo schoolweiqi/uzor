@@ -10,11 +10,11 @@ const MIN_ANGLE_DEGREES = 20;
 const MAX_GENERATION_ATTEMPTS = 3000;
 const MAX_PATTERN_RESTARTS = 10;
 const MIN_CELL_AREA_RATIO = 0.04;
-const MIN_SPIRAL_SEGMENT_PIXELS = 5;
-const MAX_SPIRAL_POINTS = 1200;
+const MIN_PARADOX_SEGMENT_PIXELS = 5;
+const MAX_PARADOX_LINES = 1500;
 
 let generatedCells = [];
-let spiralPaths = [];
+let paradoxPaths = [];
 
 function signedPolygonArea(polygon) {
   let sum = 0;
@@ -65,30 +65,17 @@ function splitVertexToEdge(polygon) {
 
   const vertexIndex = Math.floor(Math.random() * polygon.length);
   const rotated = rotatePolygon(polygon, vertexIndex);
-  const targetEdgeIndex =
-    1 + Math.floor(Math.random() * (rotated.length - 2));
+  const targetEdgeIndex = 1 + Math.floor(Math.random() * (rotated.length - 2));
 
   const edgeStart = rotated[targetEdgeIndex];
   const edgeEnd = rotated[targetEdgeIndex + 1];
-  const splitPoint = pointOnSegment(
-    edgeStart,
-    edgeEnd,
-    randomBetween(0.24, 0.76)
-  );
+  const splitPoint = pointOnSegment(edgeStart, edgeEnd, randomBetween(0.24, 0.76));
   const sourcePoint = rotated[0];
 
   return {
     polygons: [
-      [
-        sourcePoint,
-        ...rotated.slice(1, targetEdgeIndex + 1),
-        splitPoint
-      ],
-      [
-        sourcePoint,
-        splitPoint,
-        ...rotated.slice(targetEdgeIndex + 1)
-      ]
+      [sourcePoint, ...rotated.slice(1, targetEdgeIndex + 1), splitPoint],
+      [sourcePoint, splitPoint, ...rotated.slice(targetEdgeIndex + 1)]
     ]
   };
 }
@@ -102,9 +89,7 @@ function splitVertexToVertex(polygon) {
   for (let i = 0; i < polygon.length; i += 1) {
     if (i === firstIndex) continue;
 
-    const distance =
-      (i - firstIndex + polygon.length) % polygon.length;
-
+    const distance = (i - firstIndex + polygon.length) % polygon.length;
     if (distance !== 1 && distance !== polygon.length - 1) {
       candidates.push(i);
     }
@@ -112,9 +97,7 @@ function splitVertexToVertex(polygon) {
 
   if (!candidates.length) return null;
 
-  let secondIndex =
-    candidates[Math.floor(Math.random() * candidates.length)];
-
+  let secondIndex = candidates[Math.floor(Math.random() * candidates.length)];
   let start = firstIndex;
   let end = secondIndex;
 
@@ -180,9 +163,7 @@ function splitEdgeToEdge(polygon) {
   return {
     polygons: [
       expanded.slice(startIndex, endIndex + 1),
-      expanded
-        .slice(endIndex)
-        .concat(expanded.slice(0, startIndex + 1))
+      expanded.slice(endIndex).concat(expanded.slice(0, startIndex + 1))
     ]
   };
 }
@@ -200,25 +181,17 @@ function angleAtVertex(previous, current, next, width, height) {
     return 0;
   }
 
-  const cosine = Math.max(
-    -1,
-    Math.min(1, (ax * bx + ay * by) / (lengthA * lengthB))
-  );
-
+  const cosine = Math.max(-1, Math.min(1, (ax * bx + ay * by) / (lengthA * lengthB)));
   return (Math.acos(cosine) * 180) / Math.PI;
 }
 
 function hasMinimumAngles(polygon, width, height) {
   for (let i = 0; i < polygon.length; i += 1) {
-    const previous =
-      polygon[(i - 1 + polygon.length) % polygon.length];
+    const previous = polygon[(i - 1 + polygon.length) % polygon.length];
     const current = polygon[i];
     const next = polygon[(i + 1) % polygon.length];
 
-    if (
-      angleAtVertex(previous, current, next, width, height) <
-      MIN_ANGLE_DEGREES
-    ) {
+    if (angleAtVertex(previous, current, next, width, height) < MIN_ANGLE_DEGREES) {
       return false;
     }
   }
@@ -240,13 +213,7 @@ function getAllowedCornerCounts() {
   return allowed;
 }
 
-function isValidSplit(
-  result,
-  sourcePolygon,
-  allowedCorners,
-  width,
-  height
-) {
+function isValidSplit(result, sourcePolygon, allowedCorners, width, height) {
   if (!result) return false;
 
   const sourceArea = polygonArea(sourcePolygon);
@@ -256,9 +223,7 @@ function isValidSplit(
       return false;
     }
 
-    const area = polygonArea(polygon);
-
-    if (area < sourceArea * MIN_CELL_AREA_RATIO) {
+    if (polygonArea(polygon) < sourceArea * MIN_CELL_AREA_RATIO) {
       return false;
     }
 
@@ -266,118 +231,49 @@ function isValidSplit(
   });
 }
 
-function normalizePolygonDirection(polygon, clockwise) {
-  const polygonIsClockwise = signedPolygonArea(polygon) > 0;
-  const ordered =
-    polygonIsClockwise === clockwise
-      ? polygon.slice()
-      : polygon.slice().reverse();
-
-  return ordered;
-}
-
 function distanceInPixels(a, b, width, height) {
-  return Math.hypot(
-    (b.x - a.x) * width,
-    (b.y - a.y) * height
-  );
+  return Math.hypot((b.x - a.x) * width, (b.y - a.y) * height);
 }
 
-function buildNextSpiralLayer(polygon, step, width, height) {
-  const nextLayer = [];
+function prepareParadoxPolygon(polygon) {
+  let ordered = polygon.slice();
 
-  for (let i = 0; i < polygon.length; i += 1) {
-    const start = polygon[i];
-    const target = polygon[(i + 1) % polygon.length];
-    const following = polygon[(i + 2) % polygon.length];
-
-    const sideLength = distanceInPixels(
-      start,
-      target,
-      width,
-      height
-    );
-
-    const nextSideLength = distanceInPixels(
-      target,
-      following,
-      width,
-      height
-    );
-
-    if (sideLength < MIN_SPIRAL_SEGMENT_PIXELS) {
-      return null;
-    }
-
-    const offset = nextSideLength / step;
-
-    if (offset >= sideLength) {
-      return null;
-    }
-
-    const progress = 1 - offset / sideLength;
-    nextLayer.push(pointOnSegment(start, target, progress));
+  if (Math.random() < 0.5) {
+    ordered.reverse();
   }
 
-  return nextLayer;
+  const startIndex = Math.floor(Math.random() * ordered.length);
+  return rotatePolygon(ordered, startIndex);
 }
 
-function buildSpiralPath(polygon, step, width, height) {
-  const clockwise = Math.random() < 0.5;
-  const ordered = normalizePolygonDirection(polygon, clockwise);
-  const startIndex = Math.floor(Math.random() * ordered.length);
+function buildParadoxPath(polygon, step, width, height) {
+  let current = prepareParadoxPolygon(polygon);
+  const path = [current[0]];
+  const fraction = 1 / step;
 
-  let currentPolygon = rotatePolygon(ordered, startIndex);
-  const path = [currentPolygon[0]];
+  for (let lineIndex = 0; lineIndex < MAX_PARADOX_LINES; lineIndex += 1) {
+    if (current.length < 3) break;
 
-  while (path.length < MAX_SPIRAL_POINTS) {
-    const nextLayer = buildNextSpiralLayer(
-      currentPolygon,
-      step,
-      width,
-      height
-    );
+    const start = current[0];
+    const corner = current[1];
+    const nextCorner = current[2];
 
-    if (!nextLayer) {
+    const end = pointOnSegment(corner, nextCorner, fraction);
+
+    if (distanceInPixels(start, end, width, height) < MIN_PARADOX_SEGMENT_PIXELS) {
       break;
     }
 
-    for (const point of nextLayer) {
-      const previousPoint = path[path.length - 1];
+    path.push(end);
 
-      if (
-        distanceInPixels(
-          previousPoint,
-          point,
-          width,
-          height
-        ) < MIN_SPIRAL_SEGMENT_PIXELS
-      ) {
-        return path;
-      }
-
-      path.push(point);
-
-      if (path.length >= MAX_SPIRAL_POINTS) {
-        return path;
-      }
-    }
-
-    currentPolygon = [
-      nextLayer[nextLayer.length - 1],
-      ...nextLayer.slice(0, -1)
-    ];
+    const reduced = [start, end, ...current.slice(2)];
+    current = [end, ...reduced.slice(2), start];
   }
 
   return path;
 }
 
-function tryBuildPattern(
-  lineCount,
-  allowedCorners,
-  width,
-  height
-) {
+function tryBuildPattern(lineCount, allowedCorners, width, height) {
   const cells = [
     [
       { x: 0, y: 0 },
@@ -387,39 +283,18 @@ function tryBuildPattern(
     ]
   ];
 
-  const splitters = [
-    splitVertexToEdge,
-    splitVertexToVertex,
-    splitEdgeToEdge
-  ];
+  const splitters = [splitVertexToEdge, splitVertexToVertex, splitEdgeToEdge];
 
-  for (
-    let lineIndex = 0;
-    lineIndex < lineCount;
-    lineIndex += 1
-  ) {
+  for (let lineIndex = 0; lineIndex < lineCount; lineIndex += 1) {
     let accepted = false;
 
-    for (
-      let attempt = 0;
-      attempt < MAX_GENERATION_ATTEMPTS;
-      attempt += 1
-    ) {
+    for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt += 1) {
       const cellIndex = chooseCellByArea(cells);
       const sourcePolygon = cells[cellIndex];
-      const splitter =
-        splitters[Math.floor(Math.random() * splitters.length)];
+      const splitter = splitters[Math.floor(Math.random() * splitters.length)];
       const result = splitter(sourcePolygon);
 
-      if (
-        !isValidSplit(
-          result,
-          sourcePolygon,
-          allowedCorners,
-          width,
-          height
-        )
-      ) {
+      if (!isValidSplit(result, sourcePolygon, allowedCorners, width, height)) {
         continue;
       }
 
@@ -436,13 +311,13 @@ function tryBuildPattern(
   return cells;
 }
 
-function rebuildSpirals() {
+function rebuildParadoxPaths() {
   const width = Math.max(1, canvas.clientWidth);
   const height = Math.max(1, canvas.clientHeight);
   const step = normalizedStep();
 
-  spiralPaths = generatedCells.map((polygon) =>
-    buildSpiralPath(polygon, step, width, height)
+  paradoxPaths = generatedCells.map((polygon) =>
+    buildParadoxPath(polygon, step, width, height)
   );
 }
 
@@ -451,50 +326,29 @@ function generatePattern(lineCount) {
   const height = Math.max(1, canvas.clientHeight);
   const allowedCorners = getAllowedCornerCounts();
 
-  for (
-    let restart = 0;
-    restart < MAX_PATTERN_RESTARTS;
-    restart += 1
-  ) {
-    const cells = tryBuildPattern(
-      lineCount,
-      allowedCorners,
-      width,
-      height
-    );
+  for (let restart = 0; restart < MAX_PATTERN_RESTARTS; restart += 1) {
+    const cells = tryBuildPattern(lineCount, allowedCorners, width, height);
 
-    if (!cells) {
-      continue;
-    }
+    if (!cells) continue;
 
     generatedCells = cells;
-    rebuildSpirals();
+    rebuildParadoxPaths();
     drawPattern();
     return;
   }
 
   generatedCells = [];
-  spiralPaths = [];
+  paradoxPaths = [];
   drawPattern();
 }
 
 function resizeCanvas() {
   const rect = canvas.getBoundingClientRect();
   const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const pixelWidth = Math.max(1, Math.round(rect.width * dpr));
+  const pixelHeight = Math.max(1, Math.round(rect.height * dpr));
 
-  const pixelWidth = Math.max(
-    1,
-    Math.round(rect.width * dpr)
-  );
-  const pixelHeight = Math.max(
-    1,
-    Math.round(rect.height * dpr)
-  );
-
-  if (
-    canvas.width !== pixelWidth ||
-    canvas.height !== pixelHeight
-  ) {
+  if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
     canvas.width = pixelWidth;
     canvas.height = pixelHeight;
   }
@@ -506,31 +360,22 @@ function resizeCanvas() {
 function drawPolygonOutline(polygon, width, height) {
   if (!polygon.length) return;
 
-  ctx.moveTo(
-    polygon[0].x * width,
-    polygon[0].y * height
-  );
+  ctx.moveTo(polygon[0].x * width, polygon[0].y * height);
 
   for (let i = 1; i < polygon.length; i += 1) {
-    ctx.lineTo(
-      polygon[i].x * width,
-      polygon[i].y * height
-    );
+    ctx.lineTo(polygon[i].x * width, polygon[i].y * height);
   }
 
   ctx.closePath();
 }
 
-function drawSpiralPath(path, width, height) {
+function drawPolyline(path, width, height) {
   if (path.length < 2) return;
 
   ctx.moveTo(path[0].x * width, path[0].y * height);
 
   for (let i = 1; i < path.length; i += 1) {
-    ctx.lineTo(
-      path[i].x * width,
-      path[i].y * height
-    );
+    ctx.lineTo(path[i].x * width, path[i].y * height);
   }
 }
 
@@ -555,8 +400,8 @@ function drawPattern() {
     drawPolygonOutline(polygon, width, height);
   }
 
-  for (const path of spiralPaths) {
-    drawSpiralPath(path, width, height);
+  for (const path of paradoxPaths) {
+    drawPolyline(path, width, height);
   }
 
   ctx.stroke();
@@ -581,13 +426,8 @@ function normalizedStep() {
 }
 
 function toggleCornerOption(button) {
-  const isPressed =
-    button.getAttribute("aria-pressed") === "true";
-
-  button.setAttribute(
-    "aria-pressed",
-    String(!isPressed)
-  );
+  const isPressed = button.getAttribute("aria-pressed") === "true";
+  button.setAttribute("aria-pressed", String(!isPressed));
 }
 
 function handleGenerate() {
@@ -605,15 +445,11 @@ allow5Button.addEventListener("click", () => {
 generateButton.addEventListener("click", handleGenerate);
 
 lineCountInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    handleGenerate();
-  }
+  if (event.key === "Enter") handleGenerate();
 });
 
 stepInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    handleGenerate();
-  }
+  if (event.key === "Enter") handleGenerate();
 });
 
 window.addEventListener("resize", resizeCanvas);
