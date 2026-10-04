@@ -5,15 +5,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Double pendulum — Uzor</title>
   <link rel="stylesheet" href="styles.css">
+  <script src="double-pendulum.js" defer></script>
 </head>
 <body class="geometry-page">
   <div class="geometry-layout">
     <aside class="geometry-controls">
       <a class="geometry-controls__back" href="index.html">← patterns</a>
       <h1>Double pendulum</h1>
+
+      <div class="control-group">
+        <label for="angleA1">angle A1</label>
+        <input id="angleA1" type="number" min="0" max="360" step="0.000001" value="60" inputmode="decimal">
+      </div>
+
+      <div class="control-group">
+        <label for="angleA2">angle A2</label>
+        <input id="angleA2" type="number" min="0" max="360" step="0.000001" value="60" inputmode="decimal">
+      </div>
+
+      <div class="control-group">
+        <label for="angleB1">angle B1</label>
+        <input id="angleB1" type="number" min="0" max="360" step="0.000001" value="61" inputmode="decimal">
+      </div>
+
+      <div class="control-group">
+        <label for="angleB2">angle B2</label>
+        <input id="angleB2" type="number" min="0" max="360" step="0.000001" value="60" inputmode="decimal">
+      </div>
+
+      <button id="startButton" class="generate-button" type="button">start</button>
     </aside>
 
-    <main class="geometry-stage" aria-label="Double pendulum"></main>
+    <main class="geometry-stage pendulum-stage">
+      <canvas id="pendulumCanvas" aria-label="Симуляция двух двойных маятников"></canvas>
+    </main>
   </div>
 </body>
 </html>
